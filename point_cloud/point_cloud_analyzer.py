@@ -2,7 +2,8 @@ import open3d as o3d
 import numpy as np
 
 # Load point cloud
-pcd = o3d.io.read_point_cloud("/Users/keremkilic/Desktop/3D Vision/Spot-Xplore-Robotic-Scene-Understanding-by-Exploration/map/graphnav_pcl.ply")
+pcd = o3d.io.read_point_cloud("/Users/keremkilic/Desktop/3D Vision/Spot-Xplore-Robotic-Scene-Understanding-by-Exploration/point_cloud/ground_truth.ply")
+
 
 # **Number of points**
 num_points = len(pcd.points)
@@ -27,11 +28,13 @@ distances, _ = kdtree.query(points, k=2)  # k=2 because the first neighbor is th
 mean_distance = np.mean(distances[:, 1])  # Ignore first column (distance to itself)
 print(f"Mean Point Cloud Density: {mean_distance}")
 
-# **Eigenvalues of the Covariance Matrix (Shape Descriptor)**
-cov_matrix = np.cov(points.T)  # Compute covariance matrix
-eigenvalues, _ = np.linalg.eig(cov_matrix)
-print(f"Eigenvalues of Covariance Matrix: {eigenvalues}")
+# # **Eigenvalues of the Covariance Matrix (Shape Descriptor)**
+# cov_matrix = np.cov(points.T)  # Compute covariance matrix
+# eigenvalues, _ = np.linalg.eig(cov_matrix)
+# print(f"Eigenvalues of Covariance Matrix: {eigenvalues}")
 
-# **Visualize Bounding Boxes**
-o3d.visualization.draw_geometries([pcd, aabb], window_name="Axis-Aligned Bounding Box")
-o3d.visualization.draw_geometries([pcd, obb], window_name="Oriented Bounding Box")
+# # **Visualize Bounding Boxes**
+# o3d.visualization.draw_geometries([pcd, aabb], window_name="Axis-Aligned Bounding Box")
+# o3d.visualization.draw_geometries([pcd, obb], window_name="Oriented Bounding Box")
+pcd.paint_uniform_color([1, 0, 0])  # Red color
+o3d.visualization.draw_geometries([pcd])
