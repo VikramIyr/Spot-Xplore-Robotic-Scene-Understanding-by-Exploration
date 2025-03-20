@@ -4,10 +4,13 @@ import cv2
 import numpy as np
 import os
 import json
+import time
 from bosdyn.api import image_pb2, gripper_camera_param_pb2
 from bosdyn.client import create_standard_sdk, util
 from bosdyn.client.image import ImageClient, build_image_request
 from bosdyn.client.gripper_camera_param import GripperCameraParamClient
+from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient,
+                                         block_until_arm_arrives, blocking_stand)
 
 DATASET_DIR = 'dataset/realsense'
 COLOR_DIR = os.path.join(DATASET_DIR, 'color')
@@ -89,6 +92,8 @@ def main():
     util.add_base_arguments(parser)
     parser.add_argument('--pixel-format', choices=pixel_format_type_strings(),
                         help='Requested pixel format of image. If supplied, used for all sources.')
+    parser.add_argument('--capture-interval', type=float, default=0.1,
+                        help='Interval between captures in video mode, in seconds.')
     options = parser.parse_args()
 
     sdk = create_standard_sdk('image_capture')
@@ -107,18 +112,38 @@ def main():
 
     pixel_format = pixel_format_string_to_enum(options.pixel_format)
 
-    print("Press (c) to capture an image")
+    # Make the open gripper RobotCommand
+    # command_client = robot.ensure_client(RobotCommandClient.default_service_name)
+    # gripper_command = RobotCommandBuilder.claw_gripper_open_fraction_command(1.0)
+    # command = RobotCommandBuilder.build_synchro_command(gripper_command)
+    # command_client.robot_command(command)
+
+    print("Press (c) for single capture mode")
+    print("Press (v) for video capture mode")
     print("Press (q) to quit the program")
 
     while True:
-        user_input = input("Enter command (c/q): ").strip().lower()
+        user_input = input("Enter command (c/v/q): ").strip().lower()
         if user_input == 'c':
             capture_and_save_images(image_client, pixel_format)
+        elif user_input == 'v':
+            print("Entering video capture mode. Press Ctrl+C or 'q' to stop.")
+            try:
+                while True:
+                    capture_and_save_images(image_client, pixel_format)
+                    time.sleep(options.capture_interval)
+            except KeyboardInterrupt:
+                print("Video capture mode stopped by user.")
+            except Exception as e:
+                print(f"Error during video capture mode: {e}")
         elif user_input == 'q':
+            # gripper_command = RobotCommandBuilder.claw_gripper_open_fraction_command(0.0)
+            # command = RobotCommandBuilder.build_synchro_command(gripper_command)
+            # command_client.robot_command(command)
             print("Quitting program.")
             break
         else:
-            print("Invalid input, please press 'c' or 'q'.")
+            print("Invalid input, please press 'c', 'v', or 'q'.")
 
 if __name__ == '__main__':
     if not main():
