@@ -25,7 +25,7 @@ The example can be used to list the available image sources, as well as query an
 To run the example and query images from the base robot cameras:
 
 ```
-python3 get_image.py ROBOT_IP --image-sources frontleft_fisheye_image --image-sources frontleft_depth
+python3 get_image.py 192.168.80.3 --image-sources frontleft_fisheye_image --image-sources frontleft_depth
 ```
 
 The command specifies each source from which images should be captured using the command line argument `--image-sources`. To specify more than one image source you must repeat the command line argument for each source; for example, `--image-sources SOURCE1 --image-sources SOURCE2`. The successfully retrieved images will be saved to files in the current working directory with names corresponding to their source.
@@ -39,7 +39,7 @@ Note that the front left and front right cameras on Spot are rotated 90 degrees 
 Some new robots have RGB sensors. RGB images are supplied from the `fisheye_image` sources. RGB images can be requested by supplying the `--pixel-format` argument. For example, passing `--pixel-format PIXEL_FORMAT_RGB_U8` to the script returns RGB images if the image service supports them.
 
 ```
-python3 get_image.py ROBOT_IP --image-sources back_fisheye_image --pixel-format PIXEL_FORMAT_RGB_U8
+python3 get_image.py 192.168.80.3 --image-sources back_fisheye_image --pixel-format PIXEL_FORMAT_RGB_U8
 ```
 
 ## Running the Image-Viewer Example
