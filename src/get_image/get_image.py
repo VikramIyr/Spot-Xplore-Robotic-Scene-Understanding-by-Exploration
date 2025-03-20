@@ -1,33 +1,24 @@
-# Copyright (c) 2023 Boston Dynamics, Inc.  All rights reserved.
-#
-# Downloading, reproducing, distributing or otherwise using the SDK Software
-# is subject to the terms and conditions of the Boston Dynamics Software
-# Development Kit License (20191101-BDSDK-SL).
-
-"""Simple image capture tutorial."""
-
 import argparse
 import sys
-
 import cv2
 import numpy as np
-from scipy import ndimage
-
-import bosdyn.client
-import bosdyn.client.util
-from bosdyn.api import image_pb2
+import os
+import json
+from bosdyn.api import image_pb2, gripper_camera_param_pb2
+from bosdyn.client import create_standard_sdk, util
 from bosdyn.client.image import ImageClient, build_image_request
+from bosdyn.client.gripper_camera_param import GripperCameraParamClient
 
-ROTATION_ANGLE = {
-    'back_fisheye_image': 0,
-    'frontleft_fisheye_image': -78,
-    'frontright_fisheye_image': -102,
-    'left_fisheye_image': 0,
-    'right_fisheye_image': 180
-}
+DATASET_DIR = 'dataset/realsense'
+COLOR_DIR = os.path.join(DATASET_DIR, 'color')
+DEPTH_DIR = os.path.join(DATASET_DIR, 'depth')
+INTRINSICS_FILE = os.path.join(DATASET_DIR, 'camera_intrinsic.json')
+
+os.makedirs(COLOR_DIR, exist_ok=True)
+os.makedirs(DEPTH_DIR, exist_ok=True)
 
 IMAGE_SOURCES = {
-    'hand_color_image'
+    'hand_color_image',
     'hand_depth_in_hand_color_frame'
 }
 
@@ -35,73 +26,99 @@ def pixel_format_type_strings():
     names = image_pb2.Image.PixelFormat.keys()
     return names[1:]
 
-
 def pixel_format_string_to_enum(enum_string):
     return dict(image_pb2.Image.PixelFormat.items()).get(enum_string)
 
+def get_next_index(directory, extension):
+    existing_files = [f for f in os.listdir(directory) if f.endswith(extension)]
+    indices = [int(f.split('.')[0]) for f in existing_files if f.split('.')[0].isdigit()]
+    return max(indices, default=-1) + 1
 
-def main():
-    # Parse args
-    parser = argparse.ArgumentParser()
-    bosdyn.client.util.add_base_arguments(parser)
-    options = parser.parse_args()
+def save_camera_intrinsics(width, height, fx, fy, cx, cy):
+    intrinsics_data = {
+        "width": width,
+        "height": height,
+        "intrinsic_matrix": [fx, 0, 0, 0, fy, 0, cx, cy, 1]
+    }
+    with open(INTRINSICS_FILE, 'w') as f:
+        json.dump(intrinsics_data, f, indent=4)
 
-    # Create robot object with an image client.
-    sdk = bosdyn.client.create_standard_sdk('image_capture')
-    robot = sdk.create_robot(options.hostname)
-    bosdyn.client.util.authenticate(robot)
-    robot.sync_with_directory()
-    robot.time_sync.wait_for_sync()
-
-    image_client = robot.ensure_client(options.image_service)
-
-    # Capture and save images to disk
-    pixel_format = pixel_format_string_to_enum(options.pixel_format)
+def capture_and_save_images(image_client, pixel_format):
     image_request = [
-        build_image_request(source, pixel_format=pixel_format)
+        build_image_request(image_source_name=source, quality_percent=100, pixel_format=pixel_format)
         for source in IMAGE_SOURCES
     ]
     image_responses = image_client.get_image(image_request)
 
     for image in image_responses:
-        num_bytes = 1  # Assume a default of 1 byte encodings.
+        width = image.shot.image.cols
+        height = image.shot.image.rows
+        fx = image.source.pinhole.intrinsics.focal_length.x
+        fy = image.source.pinhole.intrinsics.focal_length.y
+        cx = image.source.pinhole.intrinsics.principal_point.x
+        cy = image.source.pinhole.intrinsics.principal_point.y
+
+        save_camera_intrinsics(width, height, fx, fy, cx, cy)
+
         if image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_DEPTH_U16:
             dtype = np.uint16
             extension = '.png'
+            save_dir = DEPTH_DIR
         else:
-            if image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_RGB_U8:
-                num_bytes = 3
-            elif image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_RGBA_U8:
-                num_bytes = 4
-            elif image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_GREYSCALE_U8:
-                num_bytes = 1
-            elif image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_GREYSCALE_U16:
-                num_bytes = 2
             dtype = np.uint8
             extension = '.jpg'
+            save_dir = COLOR_DIR
 
         img = np.frombuffer(image.shot.image.data, dtype=dtype)
         if image.shot.image.format == image_pb2.Image.FORMAT_RAW:
             try:
-                # Attempt to reshape array into an RGB rows X cols shape.
-                img = img.reshape((image.shot.image.rows, image.shot.image.cols, num_bytes))
+                img = img.reshape((height, width, -1))
             except ValueError:
-                # Unable to reshape the image data, trying a regular decode.
                 img = cv2.imdecode(img, -1)
         else:
             img = cv2.imdecode(img, -1)
 
-        if options.auto_rotate:
-            img = ndimage.rotate(img, ROTATION_ANGLE[image.source.name])
+        index = get_next_index(save_dir, extension)
+        filename = f"{index:06d}{extension}"
+        filepath = os.path.join(save_dir, filename)
+        cv2.imwrite(filepath, img)
+        print(f"Image saved as {filepath}.")
 
-        # Save the image from the GetImage request to the current directory with the filename
-        # matching that of the image source.
-        image_saved_path = image.source.name
-        image_saved_path = image_saved_path.replace(
-            '/', '')  # Remove any slashes from the filename the image is saved at locally.
-        cv2.imwrite(image_saved_path + extension, img)
-    return True
+def main():
+    parser = argparse.ArgumentParser()
+    util.add_base_arguments(parser)
+    parser.add_argument('--pixel-format', choices=pixel_format_type_strings(),
+                        help='Requested pixel format of image. If supplied, used for all sources.')
+    options = parser.parse_args()
 
+    sdk = create_standard_sdk('image_capture')
+    robot = sdk.create_robot(options.hostname)
+    util.authenticate(robot)
+    robot.sync_with_directory()
+    robot.time_sync.wait_for_sync()
+
+    image_client = robot.ensure_client(ImageClient.default_service_name)
+
+    camera_mode = gripper_camera_param_pb2.GripperCameraParams.MODE_640_480
+    params = gripper_camera_param_pb2.GripperCameraParams(camera_mode=camera_mode)
+
+    gripper_camera_param_client = robot.ensure_client(GripperCameraParamClient.default_service_name)
+    gripper_camera_param_client.set_camera_params(gripper_camera_param_pb2.GripperCameraParamRequest(params=params))
+
+    pixel_format = pixel_format_string_to_enum(options.pixel_format)
+
+    print("Press (c) to capture an image")
+    print("Press (q) to quit the program")
+
+    while True:
+        user_input = input("Enter command (c/q): ").strip().lower()
+        if user_input == 'c':
+            capture_and_save_images(image_client, pixel_format)
+        elif user_input == 'q':
+            print("Quitting program.")
+            break
+        else:
+            print("Invalid input, please press 'c' or 'q'.")
 
 if __name__ == '__main__':
     if not main():
